@@ -14,8 +14,10 @@ function getSupabase() {
 }
 
 function getToken(req) {
+  // Check Authorization header first, then query param (for <img src>)
   const auth = req.headers.authorization;
   if (auth && auth.startsWith('Bearer ')) return auth.slice(7);
+  if (req.query.token) return req.query.token;
   return null;
 }
 
