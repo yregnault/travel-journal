@@ -86,20 +86,24 @@ async function serverLogin(password) {
 // ── Server API ──
 function proxyPhotoUrl(url) {
   if (!url) return "";
-  if (url.indexOf("/api/storage") === 0) {
-    if (AUTH_TOKEN && url.indexOf("token=") === -1) {
-      var sep = url.indexOf("?") === -1 ? "?" : "&";
-      return url + sep + "token=" + AUTH_TOKEN;
+  // Strip any old token from URL
+  var clean = url.replace(/[&?]token=[^&]*/g, "");
+  // Handle proxy URLs
+  if (clean.indexOf("/api/storage") === 0) {
+    if (AUTH_TOKEN) {
+      var sep = clean.indexOf("?") === -1 ? "?" : "&";
+      return clean + sep + "token=" + AUTH_TOKEN;
     }
-    return url;
+    return clean;
   }
-  var match = url.match(/free\.fr\/photos\/(.+)$/);
+  // Legacy Free URLs
+  var match = clean.match(/free\.fr\/photos\/(.+)$/);
   if (match) {
     var base = "/api/storage?action=photo&file=" + encodeURIComponent(match[1]);
     if (AUTH_TOKEN) base += "&token=" + AUTH_TOKEN;
     return base;
   }
-  return url;
+  return clean;
 }
 
 async function serverLoad() {
@@ -895,7 +899,11 @@ export default function App() {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     setSaveStatus("Non sauvegarde...");
     saveTimer.current = setTimeout(async function() {
-      var cleanDays = days.map(function(d) { return Object.assign({}, d, { photos: d.photos.map(function(p) { return { id: p.id, url: p.url || "", thumb: p.thumb || "" }; }) }); });
+      var cleanDays = days.map(function(d) { return Object.assign({}, d, { photos: d.photos.map(function(p) {
+        var cleanUrl = (p.url || "").replace(/[&?]token=[^&]*/g, "");
+        var cleanThumb = (p.thumb || "").replace(/[&?]token=[^&]*/g, "");
+        return { id: p.id, url: cleanUrl, thumb: cleanThumb };
+      }) }); });
       setSaveStatus("Sauvegarde...");
       await serverSave({ config: config, days: cleanDays });
       setSaveStatus("Sauvegarde");
