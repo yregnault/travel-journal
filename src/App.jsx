@@ -893,9 +893,9 @@ export default function App() {
 
   useEffect(function() { if (!loading && !days.length) setDays([makeDay(1, config.startDate || "")]); }, [loading]);
 
-  // Auto-save
+  // Auto-save (admin only)
   useEffect(function() {
-    if (!initialized.current) return;
+    if (!initialized.current || !isAdmin) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     setSaveStatus("Non sauvegarde...");
     saveTimer.current = setTimeout(async function() {
@@ -910,7 +910,7 @@ export default function App() {
       setTimeout(function() { setSaveStatus(""); }, 3000);
     }, SAVE_DELAY);
     return function() { if (saveTimer.current) clearTimeout(saveTimer.current); };
-  }, [config, days]);
+  }, [config, days, isAdmin]);
 
   var updateDay = useCallback(function(id, patch) { setDays(function(p) { return p.map(function(d) { return d.id === id ? Object.assign({}, d, patch) : d; }); }); }, []);
   var addDay = function() { var lastDay = days[days.length - 1]; var dt = lastDay && lastDay.date ? addDaysToDate(lastDay.date, 1) : ""; setDays(days.concat([makeDay(Date.now(), dt)])); };
