@@ -596,7 +596,7 @@ function DayCard(props) {
     updateDay(day.id, { photos: newPhotos }); setUploading(false); e.target.value = "";
   };
 
-  var generateSummary = async function() {
+    var generateSummary = async function() {
     if (!day.photos.length) return;
     setLoadingAI(true); setAiError("");
     try {
@@ -614,16 +614,49 @@ function DayCard(props) {
       var parts = [];
       if (day.date) parts.push("Date : " + day.date + ".");
       var locStr = locs.filter(function(l) { return l && l.trim(); }).join(", ");
-      if (locStr) parts.push("Lieux : " + locStr + ".");
-      if (config.destinations) parts.push("Destination : " + config.destinations + ".");
-      if (config.participants) parts.push("Participants : " + config.participants + ".");
-      var nb = config.participants ? config.participants.split(",").length : 4;
-      var body = JSON.stringify({
-        model: "claude-sonnet-4-20250514", max_tokens: 1000,
-        messages: [{ role: "user", content: imgs.concat([{ type: "text", text: "Tu es un assistant de carnet de voyage pour un groupe de " + nb + " voyageurs" + (config.participants ? " (" + config.participants + ")" : "") + ". " + parts.join(" ") + "\nRedige un resume concis en francais (50-70 mots). Utilise nous/on et les prenoms quand pertinent. Ne mentionne PAS le numero du jour, la date ni les noms de lieux en debut de resume car ils sont deja affiches en titre. Concentre-toi sur l'ambiance, les ressentis, les moments forts et les decouvertes. Ton enthousiaste, style journal de bord. Si tu reconnais des lieux celebres, mentionne-les." }]) }]
+      if (locStr) parts.push("Lieux renseignes par l'utilisateur : " + locStr + ".");
+      if (config.destinations) parts.push("Destination du voyage : " + config.destinations + ".");
+
+      // Step 1: Verify coherence between photos and locations
+      var verifyBody = JSON.stringify({
+        model: "claude-sonnet-4-20250514", max_tokens: 500,
+        messages: [{ role: "user", content: imgs.concat([{ type: "text", text: "Analyse ces photos. " + parts.join(" ") + "\n\nReponds UNIQUEMENT en JSON avec ce format exact (sans markdown, sans backticks) :\n{\"coherent\": true ou false, \"lieux_detectes\": [\"lieu1\", \"lieu2\"], \"message\": \"explication si incoherent\"}\n\nVerifie si les photos correspondent aux lieux renseignes. Si tu reconnais des lieux differents de ceux indiques, mets coherent a false et explique dans message. Si tu ne peux pas verifier ou si ca semble coherent, mets coherent a true." }]) }]
       });
+
+      var verifyResp;
+      try { verifyResp = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: verifyBody }); if (!verifyResp.ok) throw new Error(); } catch (ev) { verifyResp = await fetch("/api/summary", { method: "POST", headers: { "Content-Type": "application/json" }, body: verifyBody }); }
+
+      if (verifyResp.ok) {
+        var verifyData = await verifyResp.json();
+        var verifyText = (verifyData.content || []).map(function(c) { return c.text || ""; }).filter(Boolean).join("");
+        try {
+          var cleanJson = verifyText.replace(/```json/g, "").replace(/```/g, "").trim();
+          var verification = JSON.parse(cleanJson);
+          if (verification && verification.coherent === false) {
+            var lieuxDetectes = (verification.lieux_detectes || []).join(", ");
+            var msg = "Les photos ne semblent pas correspondre aux lieux renseignes.\n\n";
+            msg += "Lieux renseignes : " + locStr + "\n";
+            if (lieuxDetectes) msg += "Lieux detectes sur les photos : " + lieuxDetectes + "\n";
+            if (verification.message) msg += "\n" + verification.message + "\n";
+            msg += "\nVoulez-vous quand meme generer le resume avec les lieux renseignes ?";
+            if (!window.confirm(msg)) {
+              setLoadingAI(false);
+              return;
+            }
+          }
+        } catch (parseErr) {
+          // JSON parse failed, continue anyway
+        }
+      }
+
+      // Step 2: Generate the actual summary
+      var summaryBody = JSON.stringify({
+        model: "claude-sonnet-4-20250514", max_tokens: 1000,
+        messages: [{ role: "user", content: imgs.concat([{ type: "text", text: "Tu es un assistant de carnet de voyage. " + parts.join(" ") + "\nRedige un resume concis et factuel en francais (50-80 mots). Utilise 'nous' et 'on'.\n\nREGLES STRICTES :\n- Decris UNIQUEMENT ce que tu vois sur les photos : lieux, monuments, paysages, ambiance, meteo visible\n- Ne mentionne AUCUN prenom ni participant\n- Ne mentionne PAS le numero du jour ni la date (deja en titre)\n- Ne mentionne PAS les noms de lieux en debut de resume (deja en titre)\n- Sois factuel et descriptif : ce qu'on voit, ce qu'on a fait, ce qu'on a decouvert\n- Si tu reconnais des lieux celebres visibles sur les photos, mentionne-les\n- Ton enthousiaste mais ancre dans le reel des photos" }]) }]
+      });
+
       var resp;
-      try { resp = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: body }); if (!resp.ok) throw new Error(); } catch (e3) { resp = await fetch("/api/summary", { method: "POST", headers: { "Content-Type": "application/json" }, body: body }); }
+      try { resp = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: summaryBody }); if (!resp.ok) throw new Error(); } catch (e3) { resp = await fetch("/api/summary", { method: "POST", headers: { "Content-Type": "application/json" }, body: summaryBody }); }
       if (!resp.ok) throw new Error("API " + resp.status);
       var data = await resp.json();
       updateDay(day.id, { summary: (data.content || []).map(function(c) { return c.text || ""; }).filter(Boolean).join("") || "Aucun resume." });
