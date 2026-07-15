@@ -605,17 +605,7 @@ function DayCard(props) {
         var p = day.photos[i], imgData = p.src || p.url;
         if (!imgData) continue;
         if (!imgData.startsWith("data:")) {
-          try {
-            // Strip token from URL and use Authorization header instead
-            var fetchUrl = imgData.replace(/[&?]token=[^&]*/g, "");
-            var fetchHeaders = {};
-            if (AUTH_TOKEN) fetchHeaders["Authorization"] = "Bearer " + AUTH_TOKEN;
-            var r2 = await fetch(fetchUrl, { headers: fetchHeaders });
-            if (!r2.ok) continue;
-            var blob = await r2.blob();
-            if (!blob.type || !blob.type.startsWith("image")) continue;
-            imgData = await new Promise(function(res) { var rd = new FileReader(); rd.onload = function() { res(rd.result); }; rd.readAsDataURL(blob); });
-          } catch (e2) { continue; }
+          try { var r2 = await fetch(imgData); var blob = await r2.blob(); imgData = await new Promise(function(res) { var rd = new FileReader(); rd.onload = function() { res(rd.result); }; rd.readAsDataURL(blob); }); } catch (e2) { continue; }
         }
         var small = await resizeImage(imgData, 600);
         imgs.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: small.split(",")[1] } });
@@ -630,11 +620,10 @@ function DayCard(props) {
       // Step 1: Verify coherence between photos and locations
       var verifyBody = JSON.stringify({
         model: "claude-sonnet-4-20250514", max_tokens: 500,
-        messages: [{ role: "user", content: imgs.concat([{ type: "text", text: "Tu es un verificateur de coherence pour un carnet de voyage.\n\n" + parts.join(" ") + "\n\nAnalyse attentivement " + (imgs.length === 1 ? "cette photo" : "ces " + imgs.length + " photos") + " et reponds UNIQUEMENT en JSON strict (sans markdown, sans backticks, sans texte avant ou apres) :\n{\"coherent\": true ou false, \"lieux_detectes\": [\"lieu1\", \"lieu2\"], \"message\": \"explication\"}\n\nRegles :\n- Identifie tous les lieux, monuments, paysages, panneaux, enseignes visibles sur les photos\n- Compare avec les lieux renseignes par l'utilisateur\n- Meme avec une seule photo, essaie de detecter des indices (architecture, vegetation, langue des panneaux, paysage)\n- Si les indices visuels ne correspondent clairement pas aux lieux renseignes, mets coherent a false\n- Si tu ne peux pas determiner le lieu avec certitude, mets coherent a true\n- Dans lieux_detectes, liste ce que tu reconnais sur les photos\n- Dans message, explique ce que tu as observe" }]) }]
+        messages: [{ role: "user", content: imgs.concat([{ type: "text", text: "Analyse ces photos. " + parts.join(" ") + "\n\nReponds UNIQUEMENT en JSON avec ce format exact (sans markdown, sans backticks) :\n{\"coherent\": true ou false, \"lieux_detectes\": [\"lieu1\", \"lieu2\"], \"message\": \"explication si incoherent\"}\n\nVerifie si les photos correspondent aux lieux renseignes. Si tu reconnais des lieux differents de ceux indiques, mets coherent a false et explique dans message. Si tu ne peux pas verifier ou si ca semble coherent, mets coherent a true." }]) }]
       });
 
-      var verifyResp;
-      try { verifyResp = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: verifyBody }); if (!verifyResp.ok) throw new Error(); } catch (ev) { verifyResp = await fetch("/api/summary", { method: "POST", headers: { "Content-Type": "application/json" }, body: verifyBody }); }
+      var verifyResp = await fetch("/api/summary", { method: "POST", headers: { "Content-Type": "application/json" }, body: verifyBody });
 
       if (verifyResp.ok) {
         var verifyData = await verifyResp.json();
@@ -644,11 +633,11 @@ function DayCard(props) {
           var verification = JSON.parse(cleanJson);
           if (verification && verification.coherent === false) {
             var lieuxDetectes = (verification.lieux_detectes || []).join(", ");
-            var msg = "⚠️ Incoherence detectee entre les photos et les lieux !\n\n";
-            msg += "📍 Lieux renseignes : " + (locStr || "(aucun)") + "\n";
-            if (lieuxDetectes) msg += "📸 Lieux detectes sur les photos : " + lieuxDetectes + "\n";
-            if (verification.message) msg += "\n💬 " + verification.message + "\n";
-            msg += "\nCliquez OK pour generer le resume quand meme, ou Annuler pour corriger les lieux.";
+            var msg = "Les photos ne semblent pas correspondre aux lieux renseignes.\n\n";
+            msg += "Lieux renseignes : " + locStr + "\n";
+            if (lieuxDetectes) msg += "Lieux detectes sur les photos : " + lieuxDetectes + "\n";
+            if (verification.message) msg += "\n" + verification.message + "\n";
+            msg += "\nVoulez-vous quand meme generer le resume avec les lieux renseignes ?";
             if (!window.confirm(msg)) {
               setLoadingAI(false);
               return;
@@ -665,8 +654,7 @@ function DayCard(props) {
         messages: [{ role: "user", content: imgs.concat([{ type: "text", text: "Tu es un assistant de carnet de voyage. " + parts.join(" ") + "\nRedige un resume concis et factuel en francais (50-80 mots). Utilise 'nous' et 'on'.\n\nREGLES STRICTES :\n- Decris UNIQUEMENT ce que tu vois sur les photos : lieux, monuments, paysages, ambiance, meteo visible\n- Ne mentionne AUCUN prenom ni participant\n- Ne mentionne PAS le numero du jour ni la date (deja en titre)\n- Ne mentionne PAS les noms de lieux en debut de resume (deja en titre)\n- Sois factuel et descriptif : ce qu'on voit, ce qu'on a fait, ce qu'on a decouvert\n- Si tu reconnais des lieux celebres visibles sur les photos, mentionne-les\n- Ton enthousiaste mais ancre dans le reel des photos" }]) }]
       });
 
-      var resp;
-      try { resp = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "Content-Type": "application/json" }, body: summaryBody }); if (!resp.ok) throw new Error(); } catch (e3) { resp = await fetch("/api/summary", { method: "POST", headers: { "Content-Type": "application/json" }, body: summaryBody }); }
+      var resp = await fetch("/api/summary", { method: "POST", headers: { "Content-Type": "application/json" }, body: summaryBody });
       if (!resp.ok) throw new Error("API " + resp.status);
       var data = await resp.json();
       updateDay(day.id, { summary: (data.content || []).map(function(c) { return c.text || ""; }).filter(Boolean).join("") || "Aucun resume." });
