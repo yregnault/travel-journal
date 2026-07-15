@@ -651,7 +651,7 @@ function DayCard(props) {
       // Step 2: Generate the actual summary
       var summaryBody = JSON.stringify({
         model: "claude-sonnet-5", max_tokens: 1000, thinking: { type: "disabled" },
-        messages: [{ role: "user", content: imgs.concat([{ type: "text", text: "Tu rediges une notice descriptive de guide de voyage." + parts.join(" ") + "\nRedige une description factuelle et informative en francais (40-70 mots), a la troisieme personne, sans 'nous' ni 'on'.\n\nREGLES STRICTES :\n- Style guide de voyage : descriptif, neutre, informatif. Decris ce que montrent les photos (monuments, sites, paysages, architecture, elements naturels ou urbains) comme le ferait une notice touristique\n- Base-toi UNIQUEMENT sur ce qui est visible sur les photos\n- Si tu reconnais des lieux ou monuments celebres, nomme-les et ajoute un fait marquant (epoque, style, particularite)\n- AUCUN prenom ni participant, AUCUNE personne decrite\n- Ne mentionne PAS le numero du jour ni la date (deja en titre)\n- Ne commence PAS par le nom du lieu principal (deja en titre)\n- Pas de tournures narratives ni d'enthousiasme : reste sobre et factuel" }]) }]
+        messages: [{ role: "user", content: imgs.concat([{ type: "text", text: "Tu rediges un resume factuel de journee de voyage. " + parts.join(" ") + "\nRedige en francais, 40-70 mots, a la premiere personne du pluriel ('nous', 'on').\n\nREGLES STRICTES :\n- Commence DIRECTEMENT par le contenu. Aucune phrase d'introduction, aucun 'Voici', 'Aujourd'hui', 'Resume :' ou preambule.\n- Reste STRICTEMENT factuel : enonce ce qui est visible sur les photos (monuments, sites, batiments, paysages, elements naturels ou urbains). Pas d'adjectifs d'ambiance, pas d'interpretation, pas d'emotions, pas d'enthousiasme.\n- Base-toi UNIQUEMENT sur ce que montrent les photos.\n- Si tu reconnais des lieux ou monuments celebres, nomme-les precisement et ajoute un fait concret (epoque, style, fonction, particularite).\n- AUCUN prenom ni participant.\n- Ne mentionne PAS le numero du jour ni la date (deja en titre).\n- Ne commence PAS par le nom du lieu principal (deja en titre)." }]) }]
       });
 
       var resp = await fetch("/api/summary", { method: "POST", headers: { "Content-Type": "application/json" }, body: summaryBody });
@@ -727,7 +727,7 @@ function DayCard(props) {
           {aiError && <div style={{ marginTop: 12, background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 10, padding: 12, fontSize: 13, color: "#b91c1c" }}>{aiError}</div>}
           {day.summary && (
             <div style={{ marginTop: 16, background: "linear-gradient(135deg, " + t.bg1 + ", " + t.border + ")", borderRadius: 12, padding: 16, borderLeft: "4px solid " + t.primaryLight }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: t.primary, marginBottom: 6 }}>Resume de la journee</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: t.primary, marginBottom: 6 }}>Résumé de la journée</div>
               {isAdmin ? (
                 <textarea value={day.summary} onChange={function(e) { updateDay(day.id, { summary: e.target.value }); }} rows={3} style={{ width: "100%", padding: 10, borderRadius: 8, border: "1px solid " + t.cardAccent, fontSize: 14, fontFamily: "inherit", outline: "none", boxSizing: "border-box", background: "rgba(255,255,255,0.6)", color: t.textDark, lineHeight: 1.6, resize: "vertical" }} />
               ) : (<div style={{ fontSize: 14, color: t.textDark, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{day.summary}</div>)}
