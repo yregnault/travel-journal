@@ -619,7 +619,7 @@ function DayCard(props) {
 
       // Step 1: Verify coherence between photos and locations
       var verifyBody = JSON.stringify({
-        model: "claude-sonnet-4-20250514", max_tokens: 500,
+        model: "claude-sonnet-5", max_tokens: 500, thinking: { type: "disabled" },
         messages: [{ role: "user", content: imgs.concat([{ type: "text", text: "Analyse ces photos. " + parts.join(" ") + "\n\nReponds UNIQUEMENT en JSON avec ce format exact (sans markdown, sans backticks) :\n{\"coherent\": true ou false, \"lieux_detectes\": [\"lieu1\", \"lieu2\"], \"message\": \"explication si incoherent\"}\n\nVerifie si les photos correspondent aux lieux renseignes. Si tu reconnais des lieux differents de ceux indiques, mets coherent a false et explique dans message. Si tu ne peux pas verifier ou si ca semble coherent, mets coherent a true." }]) }]
       });
 
@@ -650,7 +650,7 @@ function DayCard(props) {
 
       // Step 2: Generate the actual summary
       var summaryBody = JSON.stringify({
-        model: "claude-sonnet-4-20250514", max_tokens: 1000,
+        model: "claude-sonnet-5", max_tokens: 1000, thinking: { type: "disabled" },
         messages: [{ role: "user", content: imgs.concat([{ type: "text", text: "Tu es un assistant de carnet de voyage. " + parts.join(" ") + "\nRedige un resume concis et factuel en francais (50-80 mots). Utilise 'nous' et 'on'.\n\nREGLES STRICTES :\n- Decris UNIQUEMENT ce que tu vois sur les photos : lieux, monuments, paysages, ambiance, meteo visible\n- Ne mentionne AUCUN prenom ni participant\n- Ne mentionne PAS le numero du jour ni la date (deja en titre)\n- Ne mentionne PAS les noms de lieux en debut de resume (deja en titre)\n- Sois factuel et descriptif : ce qu'on voit, ce qu'on a fait, ce qu'on a decouvert\n- Si tu reconnais des lieux celebres visibles sur les photos, mentionne-les\n- Ton enthousiaste mais ancre dans le reel des photos" }]) }]
       });
 
