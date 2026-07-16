@@ -222,26 +222,57 @@ function getAllLocations(days) {
 // ── Access Gate ──
 function AccessGate(props) {
   var onAccess = props.onAccess, t = props.theme || THEMES.default;
-  var _p = useState(""), pw = _p[0], setPw = _p[1];
+  var _pv = useState(""), pwV = _pv[0], setPwV = _pv[1];
+  var _pa = useState(""), pwA = _pa[0], setPwA = _pa[1];
   var _e = useState(""), err = _e[0], setErr = _e[1];
-  var _l = useState(false), loading = _l[0], setLoading = _l[1];
+  var _l = useState(""), loading = _l[0], setLoading = _l[1]; // "" | "visitor" | "admin"
 
-  var tryAccess = async function() {
-    setLoading(true); setErr("");
+  // zone = "visitor" ou "admin" : contrôle quel mot de passe est envoyé et le message d'erreur
+  var tryAccess = async function(zone, pw) {
+    if (!pw) { setErr("Entrez le mot de passe " + (zone === "admin" ? "admin" : "visiteur") + "."); return; }
+    setLoading(zone); setErr("");
     var role = await serverLogin(pw);
-    setLoading(false);
-    if (role) { onAccess(role); } else { setErr("Mot de passe incorrect"); }
+    setLoading("");
+    if (!role) { setErr("Mot de passe " + (zone === "admin" ? "admin" : "visiteur") + " incorrect."); return; }
+    if (zone === "admin" && role !== "admin") { setErr("Ce mot de passe n'est pas le mot de passe admin. Utilisez la zone Visiteur."); return; }
+    if (zone === "visitor" && role === "admin") { setErr("Ceci est le mot de passe admin. Utilisez la zone Admin ci-dessous."); return; }
+    onAccess(role);
   };
 
+  var inputSt = { width: "100%", padding: "13px 16px", borderRadius: 12, border: "2px solid " + t.border, fontSize: 15, outline: "none", boxSizing: "border-box", fontFamily: "inherit", textAlign: "center" };
+  var btnSt = function(active, primary) {
+    return { width: "100%", marginTop: 10, padding: "12px", borderRadius: 12, border: primary ? "none" : "2px solid " + t.cardAccent, background: primary ? "linear-gradient(135deg, " + t.primaryLight + ", " + t.primary + ")" : "#fff", color: primary ? "#fff" : t.primary, fontSize: 15, fontWeight: 700, cursor: active ? "default" : "pointer", fontFamily: "inherit", opacity: active ? 0.7 : 1 };
+  };
+  var labelSt = { display: "block", textAlign: "left", fontSize: 13, fontWeight: 700, color: t.primary, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.5 };
+
   return (
-    <div style={{ minHeight: "100vh", background: "linear-gradient(160deg, " + t.textDark + " 0%, " + t.primary + " 50%, " + t.primaryLight + " 100%)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Segoe UI', system-ui, -apple-system, sans-serif" }}>
-      <div style={{ background: "rgba(255,255,255,0.95)", borderRadius: 24, padding: "48px 40px", maxWidth: 380, width: "90%", textAlign: "center", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
-        <div style={{ fontSize: 60, marginBottom: 16 }}>{t.emoji1}</div>
+    <div style={{ minHeight: "100vh", background: "linear-gradient(160deg, " + t.textDark + " 0%, " + t.primary + " 50%, " + t.primaryLight + " 100%)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Segoe UI', system-ui, -apple-system, sans-serif", padding: "24px 0" }}>
+      <div style={{ background: "rgba(255,255,255,0.95)", borderRadius: 24, padding: "40px 36px", maxWidth: 400, width: "90%", textAlign: "center", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+        <div style={{ fontSize: 56, marginBottom: 12 }}>{t.emoji1}</div>
         <h1 style={{ color: t.primary, fontSize: 24, fontWeight: 800, marginBottom: 8 }}>Carnet de Voyage</h1>
-        <p style={{ color: "#777", fontSize: 14, marginBottom: 28 }}>Ce carnet est prive. Entrez le mot de passe pour y acceder.</p>
-        <input type="password" value={pw} onChange={function(e) { setPw(e.target.value); setErr(""); }} onKeyDown={function(e) { if (e.key === "Enter") tryAccess(); }} placeholder="Mot de passe" autoFocus disabled={loading} style={{ width: "100%", padding: "14px 18px", borderRadius: 12, border: "2px solid " + t.border, fontSize: 16, outline: "none", boxSizing: "border-box", fontFamily: "inherit", textAlign: "center" }} />
-        <button onClick={tryAccess} disabled={loading} style={{ width: "100%", marginTop: 16, padding: "14px", borderRadius: 12, border: "none", background: "linear-gradient(135deg, " + t.primaryLight + ", " + t.primary + ")", color: "#fff", fontSize: 16, fontWeight: 700, cursor: loading ? "default" : "pointer", fontFamily: "inherit", opacity: loading ? 0.7 : 1 }}>{loading ? "Verification..." : "Acceder au carnet"}</button>
-        {err && <p style={{ color: "#ef4444", fontSize: 13, marginTop: 12 }}>{err}</p>}
+        <p style={{ color: "#777", fontSize: 14, marginBottom: 28 }}>Ce carnet est prive. Choisissez votre acces.</p>
+
+        {/* Zone Visiteur */}
+        <div style={{ textAlign: "left", marginBottom: 8 }}>
+          <label style={labelSt}>👀 Visiteur — lecture seule</label>
+          <input type="password" value={pwV} onChange={function(e) { setPwV(e.target.value); setErr(""); }} onKeyDown={function(e) { if (e.key === "Enter") tryAccess("visitor", pwV); }} placeholder="Mot de passe visiteur" disabled={loading === "visitor"} style={inputSt} />
+          <button onClick={function() { tryAccess("visitor", pwV); }} disabled={loading === "visitor"} style={btnSt(loading === "visitor", false)}>{loading === "visitor" ? "Verification..." : "Visiter le carnet"}</button>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "20px 0" }}>
+          <div style={{ flex: 1, height: 1, background: t.border }} />
+          <span style={{ color: "#bbb", fontSize: 12 }}>ou</span>
+          <div style={{ flex: 1, height: 1, background: t.border }} />
+        </div>
+
+        {/* Zone Admin */}
+        <div style={{ textAlign: "left" }}>
+          <label style={labelSt}>🔧 Admin — edition</label>
+          <input type="password" value={pwA} onChange={function(e) { setPwA(e.target.value); setErr(""); }} onKeyDown={function(e) { if (e.key === "Enter") tryAccess("admin", pwA); }} placeholder="Mot de passe admin" disabled={loading === "admin"} style={inputSt} />
+          <button onClick={function() { tryAccess("admin", pwA); }} disabled={loading === "admin"} style={btnSt(loading === "admin", true)}>{loading === "admin" ? "Verification..." : "Se connecter en admin"}</button>
+        </div>
+
+        {err && <p style={{ color: "#ef4444", fontSize: 13, marginTop: 16 }}>{err}</p>}
         <p style={{ color: "#bbb", fontSize: 11, marginTop: 24 }}>Acces reserve aux participants et invites</p>
       </div>
     </div>
