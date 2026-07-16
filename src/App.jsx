@@ -373,22 +373,25 @@ function loadRouteType() { try { return localStorage.getItem("routeType") || "no
 
 function KmCounter(props) {
   var days = props.days, setRouteGeo = props.setRouteGeo, updateDay = props.updateDay, t = props.theme || THEMES.default, isAdmin = props.isAdmin;
-  var initialKm = days.reduce(function(s, d) { return s + (d.km || 0); }, 0);
-  var _t2 = useState(initialKm), totalKm = _t2[0], setTotalKm = _t2[1];
+  var onSelectDay = props.onSelectDay, selectedDay = props.selectedDay;
+  var totalKm = days.reduce(function(s, d) { return s + (d.km || 0); }, 0); // derive des jours (inclut les valeurs forcees)
   var _m = useState(0), totalMins = _m[0], setTotalMins = _m[1];
   var _c = useState(false), computing = _c[0], setComputing = _c[1];
   var _r2 = useState(loadRouteType), routeType = _r2[0], setRouteType = _r2[1];
   var computedRef = useRef(false);
 
-  // Mémorise le dernier choix Rapide/Touristique et relance le calcul
+  // Mémorise le dernier choix Rapide/Touristique et relance le tracé de la route
   var chooseRoute = function(rt) {
     if (rt === routeType) return;
     setRouteType(rt);
     try { localStorage.setItem("routeType", rt); } catch (e) {}
-    computedRef.current = false; // force le recalcul avec le nouveau type
+    computedRef.current = false;
   };
 
-  var compute = async function() {
+  // writeTarget : undefined => remplit seulement les jours sans valeur (protege les valeurs forcees) ;
+  //               un dayId => ecrit seulement ce jour (recalcul jour par jour).
+  // La route (geometrie) est toujours retracee selon l'option Rapide/Touristique.
+  var compute = async function(writeTarget) {
     setComputing(true);
     var allLocs = getAllLocations(days);
     var coords = [];
@@ -396,27 +399,34 @@ function KmCounter(props) {
       var c = await geocode(allLocs[i].loc);
       if (c) coords.push({ loc: allLocs[i].loc, coords: c, dayId: allLocs[i].dayId });
     }
-    var total = 0, totalT = 0, segs = [], allGeo = [];
+    var totalT = 0, allGeo = [], geoByDay = {};
     var scenic = routeType === "scenic";
     var dayKm = {};
     for (var j = 1; j < coords.length; j++) {
       var result = await getRouteWithGeometry(coords[j - 1].coords, coords[j].coords, scenic);
       if (result) {
-        total += result.km; totalT += result.mins;
-        segs.push({ from: coords[j - 1].loc, to: coords[j].loc, km: result.km, mins: result.mins });
-        if (result.geometry) allGeo = allGeo.concat(result.geometry);
-        var did = coords[j].dayId;
-        if (!dayKm[did]) dayKm[did] = { km: 0, mins: 0 };
-        dayKm[did].km += result.km; dayKm[did].mins += result.mins;
+        totalT += result.mins;
+        var dk = String(coords[j].dayId);
+        if (result.geometry) { allGeo = allGeo.concat(result.geometry); geoByDay[dk] = (geoByDay[dk] || []).concat(result.geometry); }
+        if (!dayKm[dk]) dayKm[dk] = { km: 0, mins: 0 };
+        dayKm[dk].km += result.km; dayKm[dk].mins += result.mins;
       }
       await new Promise(function(r) { setTimeout(r, 350); });
     }
-    setTotalKm(Math.round(total)); setTotalMins(totalT); setSegments(segs); setRouteGeo(allGeo);
-    Object.keys(dayKm).forEach(function(did2) { updateDay(parseInt(did2) || did2, { km: dayKm[did2].km, kmTime: formatDuration(dayKm[did2].mins) }); });
+    setTotalMins(totalT); setRouteGeo({ flat: allGeo, byDay: geoByDay });
+    Object.keys(dayKm).forEach(function(dk2) {
+      var idNum = parseInt(dk2) || dk2;
+      var existing = days.find(function(d) { return String(d.id) === dk2; });
+      var write = writeTarget != null ? String(writeTarget) === dk2 : (!existing || !existing.km);
+      if (write) updateDay(idNum, { km: dayKm[dk2].km, kmTime: formatDuration(dayKm[dk2].mins) });
+    });
     setComputing(false);
   };
 
-  // Calcul automatique à l'ouverture de la carte, et à chaque changement Rapide/Touristique
+  // Recalcul d'un seul jour (avec ecrasement de la valeur forcee, deja confirme cote UI)
+  var recalcDay = function(dayId) { computedRef.current = true; compute(dayId); };
+
+  // Tracé automatique de la route à l'ouverture et au changement Rapide/Touristique (ne remplit que les jours vides)
   useEffect(function() {
     if (computedRef.current) return;
     if (!getAllLocations(days).length) return;
@@ -437,36 +447,46 @@ function KmCounter(props) {
             <button onClick={function() { chooseRoute("normal"); }} style={{ padding: "6px 12px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: routeType === "normal" ? t.primary : "#fff", color: routeType === "normal" ? "#fff" : t.primary, fontFamily: "inherit" }}>Rapide</button>
             <button onClick={function() { chooseRoute("scenic"); }} style={{ padding: "6px 12px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: routeType === "scenic" ? t.primary : "#fff", color: routeType === "scenic" ? "#fff" : t.primary, borderLeft: "1px solid " + t.cardAccent, fontFamily: "inherit" }}>Touristique</button>
           </div>
-          <button onClick={function() { computedRef.current = true; compute(); }} disabled={computing} style={{ background: "linear-gradient(135deg, " + t.primaryLight + ", " + t.primary + ")", color: "#fff", border: "none", borderRadius: 10, padding: "8px 16px", cursor: "pointer", fontSize: 13, fontWeight: 600, opacity: computing ? 0.7 : 1 }}>{computing ? "Calcul..." : "Recalculer"}</button>
         </div>
       </div>
-      <DayKmSummary days={days} updateDay={updateDay} isAdmin={isAdmin} computing={computing} theme={t} />
+      <DayKmSummary days={days} isAdmin={isAdmin} computing={computing} theme={t} onRecalcDay={recalcDay} onSelectDay={onSelectDay} selectedDay={selectedDay} updateDay={updateDay} />
     </div>
   );
 }
 
-// ── DayKmSummary : recap km + duree par jour (editable en admin) ──
+// ── DayKmSummary : recap km + duree par jour ──
+// Clic sur une ligne = surbrillance de la route du jour. En admin : valeurs editables + recalcul du jour.
 function DayKmSummary(props) {
   var days = props.days, updateDay = props.updateDay, isAdmin = props.isAdmin, computing = props.computing, t = props.theme || THEMES.default;
+  var onRecalcDay = props.onRecalcDay, onSelectDay = props.onSelectDay, selectedDay = props.selectedDay;
   var rows = days.map(function(d, i) {
     var locs = (d.locations || []).filter(function(l) { return l && l.trim(); });
     return { day: d, num: i + 1, locStr: locs.join(" > ") };
   }).filter(function(r) { return r.day.km > 0 || r.locStr; });
   if (!rows.length) return null;
-  var numSt = { width: 60, padding: "3px 6px", borderRadius: 6, border: "1px solid " + t.cardAccent, fontSize: 13, fontWeight: 700, color: t.primary, outline: "none", textAlign: "right", fontFamily: "inherit" };
-  var txtSt = { width: 70, padding: "3px 6px", borderRadius: 6, border: "1px solid " + t.cardAccent, fontSize: 12, color: t.textLight, outline: "none", textAlign: "right", fontFamily: "inherit" };
+  var numSt = { width: 56, padding: "3px 6px", borderRadius: 6, border: "1px solid " + t.cardAccent, fontSize: 13, fontWeight: 700, color: t.primary, outline: "none", textAlign: "right", fontFamily: "inherit" };
+  var txtSt = { width: 58, padding: "3px 6px", borderRadius: 6, border: "1px solid " + t.cardAccent, fontSize: 12, color: t.textLight, outline: "none", textAlign: "right", fontFamily: "inherit" };
+  var stop = function(e) { e.stopPropagation(); };
+  var handleRecalc = function(r, e) {
+    e.stopPropagation();
+    if (r.day.km > 0 && !window.confirm("Recalculer le jour " + r.num + " ?\nLa valeur actuelle (" + r.day.km + " km" + (r.day.kmTime ? ", " + r.day.kmTime : "") + ") sera ecrasee.")) return;
+    onRecalcDay(r.day.id);
+  };
   return (
     <div style={{ marginTop: 12 }}>
-      <div style={{ fontSize: 12, fontWeight: 700, color: t.textLight, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Par jour {computing && <span style={{ fontWeight: 400, textTransform: "none" }}>— calcul en cours...</span>}</div>
-      {rows.map(function(r, i) { return (
-        <div key={r.day.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: i < rows.length - 1 ? "1px solid " + t.bg1 : "none" }}>
-          <span style={{ fontSize: 12, color: t.textLight, fontWeight: 700, flexShrink: 0 }}>J{r.num}</span>
-          <span style={{ fontSize: 13, color: t.primary, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.locStr}</span>
+      <div style={{ fontSize: 12, fontWeight: 700, color: t.textLight, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Par jour <span style={{ fontWeight: 400, textTransform: "none" }}>{computing ? "— calcul en cours..." : "— cliquez un jour pour surligner sa route"}</span></div>
+      {rows.map(function(r, i) {
+        var isSel = onSelectDay && selectedDay != null && String(selectedDay) === String(r.day.id);
+        return (
+        <div key={r.day.id} onClick={function() { if (onSelectDay) onSelectDay(r.day.id); }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", margin: "0 -8px", borderRadius: 8, borderBottom: i < rows.length - 1 ? "1px solid " + t.bg1 : "none", cursor: onSelectDay ? "pointer" : "default", background: isSel ? t.bg1 : "transparent" }}>
+          <span style={{ fontSize: 12, color: isSel ? t.primary : t.textLight, fontWeight: 700, flexShrink: 0 }}>J{r.num}</span>
+          <span style={{ fontSize: 13, color: t.primary, fontWeight: isSel ? 700 : 500, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.locStr}</span>
           {isAdmin ? (
             <>
-              <input type="number" value={r.day.km || 0} onChange={function(e) { updateDay(r.day.id, { km: parseInt(e.target.value) || 0 }); }} style={numSt} />
+              <input type="number" value={r.day.km || 0} onClick={stop} onChange={function(e) { updateDay(r.day.id, { km: parseInt(e.target.value) || 0 }); }} style={numSt} />
               <span style={{ fontSize: 13, color: t.primary }}>km</span>
-              <input type="text" value={r.day.kmTime || ""} placeholder="1h30" onChange={function(e) { updateDay(r.day.id, { kmTime: e.target.value }); }} style={txtSt} />
+              <input type="text" value={r.day.kmTime || ""} placeholder="1h30" onClick={stop} onChange={function(e) { updateDay(r.day.id, { kmTime: e.target.value }); }} style={txtSt} />
+              <button title="Recalculer ce jour" onClick={function(e) { handleRecalc(r, e); }} disabled={computing} style={{ background: "none", border: "1px solid " + t.cardAccent, borderRadius: 6, padding: "3px 8px", cursor: computing ? "default" : "pointer", fontSize: 13, color: t.primary, opacity: computing ? 0.5 : 1 }}>↻</button>
             </>
           ) : (
             <>
@@ -543,6 +563,8 @@ function TripMap(props) {
   var _s3 = useState(""), status = _s3[0], setStatus = _s3[1];
   var _r4 = useState(false), mapReady = _r4[0], setMapReady = _r4[1];
   var _tk = useState(0), tick = _tk[0], setTick = _tk[1];
+  var _sd = useState(null), selectedDay = _sd[0], setSelectedDay = _sd[1];
+  var toggleDay = function(id) { setSelectedDay(function(cur) { return String(cur) === String(id) ? null : id; }); };
 
   useEffect(function() {
     var c = false;
@@ -562,8 +584,13 @@ function TripMap(props) {
     if (!mapReady || !window.L || !mRef.current) return;
     var L = window.L, m = mRef.current;
     routeRef.current.forEach(function(l) { m.removeLayer(l); }); routeRef.current = [];
-    if (routeGeo && routeGeo.length > 1) { routeRef.current.push(L.polyline(routeGeo, { color: t.primary, weight: 4, opacity: 0.8 }).addTo(m)); }
-  }, [routeGeo, mapReady]);
+    var flat = (routeGeo && routeGeo.flat) || [];
+    if (flat.length > 1) { routeRef.current.push(L.polyline(flat, { color: t.primary, weight: 4, opacity: selectedDay != null ? 0.35 : 0.8 }).addTo(m)); }
+    if (selectedDay != null) {
+      var seg = ((routeGeo && routeGeo.byDay) || {})[String(selectedDay)];
+      if (seg && seg.length > 1) { routeRef.current.push(L.polyline(seg, { color: t.textDark, weight: 8, opacity: 1 }).addTo(m)); }
+    }
+  }, [routeGeo, mapReady, selectedDay]);
 
   var refresh = useCallback(async function() {
     if (!mapReady || !window.L || !mRef.current) return;
@@ -593,7 +620,7 @@ function TripMap(props) {
 
   return (
     <div>
-      <KmCounter days={days} routeGeo={routeGeo} setRouteGeo={setRouteGeo} updateDay={updateDay} theme={t} isAdmin={isAdmin} />
+      <KmCounter days={days} routeGeo={routeGeo} setRouteGeo={setRouteGeo} updateDay={updateDay} theme={t} isAdmin={isAdmin} onSelectDay={toggleDay} selectedDay={selectedDay} />
       <div style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "center", flexWrap: "wrap" }}>
         <button onClick={function() { setTick(function(x) { return x + 1; }); }} style={{ background: "linear-gradient(135deg, " + t.primaryLight + ", " + t.primary + ")", color: "#fff", border: "none", borderRadius: 10, padding: "10px 20px", cursor: "pointer", fontSize: 14, fontWeight: 600 }}>Actualiser</button>
         {status && <span style={{ fontSize: 13, color: t.accent }}>{status}</span>}
@@ -601,11 +628,13 @@ function TripMap(props) {
       <div ref={cRef} style={{ width: "100%", height: 420, borderRadius: 14, overflow: "hidden", border: "2px solid " + t.border, background: t.bg2 }} />
       {getAllLocations(days).length > 0 && (
         <div style={{ marginTop: 12, display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {getAllLocations(days).map(function(item, i) { return (
-            <div key={i} style={{ background: "#fff", borderRadius: 8, padding: "4px 10px", fontSize: 12, border: "1px solid " + t.border, display: "flex", alignItems: "center", gap: 5 }}>
-              <span style={{ background: t.primary, color: "#fff", borderRadius: "50%", width: 20, height: 20, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700 }}>{i + 1}</span>
-              <span style={{ color: "#555", fontSize: 11 }}>J{item.dayNum}</span>
-              <span style={{ color: t.primary, fontWeight: 500 }}>{item.loc}</span>
+          {getAllLocations(days).map(function(item, i) {
+            var isSel = String(selectedDay) === String(item.dayId);
+            return (
+            <div key={i} onClick={function() { toggleDay(item.dayId); }} style={{ background: isSel ? t.primary : "#fff", borderRadius: 8, padding: "4px 10px", fontSize: 12, border: "1px solid " + (isSel ? t.primary : t.border), display: "flex", alignItems: "center", gap: 5, cursor: "pointer" }}>
+              <span style={{ background: isSel ? "#fff" : t.primary, color: isSel ? t.primary : "#fff", borderRadius: "50%", width: 20, height: 20, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700 }}>{i + 1}</span>
+              <span style={{ color: isSel ? t.cardAccent : "#555", fontSize: 11 }}>J{item.dayNum}</span>
+              <span style={{ color: isSel ? "#fff" : t.primary, fontWeight: 500 }}>{item.loc}</span>
             </div>
           ); })}
         </div>
@@ -726,7 +755,7 @@ function DayCard(props) {
       // Step 2: Generate the actual summary
       var summaryBody = JSON.stringify({
         model: "claude-sonnet-5", max_tokens: 1000, thinking: { type: "disabled" },
-        messages: [{ role: "user", content: imgs.concat([{ type: "text", text: "Tu rediges un resume factuel de journee de voyage. " + parts.join(" ") + "\nRedige en francais, 40-70 mots, a la premiere personne du pluriel ('nous', 'on').\n\nREGLES STRICTES :\n- Commence DIRECTEMENT par le contenu. Aucune phrase d'introduction, aucun 'Voici', 'Aujourd'hui', 'Resume :' ou preambule.\n- Reste STRICTEMENT factuel : enonce ce qui est visible sur les photos (monuments, sites, batiments, paysages, elements naturels ou urbains). Pas d'adjectifs d'ambiance, pas d'interpretation, pas d'emotions, pas d'enthousiasme.\n- Base-toi UNIQUEMENT sur ce que montrent les photos.\n- Si tu reconnais des lieux ou monuments celebres, nomme-les precisement et ajoute un fait concret (epoque, style, fonction, particularite).\n- AUCUN prenom ni participant.\n- Ne mentionne PAS le numero du jour ni la date (deja en titre).\n- Ne commence PAS par le nom du lieu principal (deja en titre)." }]) }]
+        messages: [{ role: "user", content: imgs.concat([{ type: "text", text: "Tu rediges un resume factuel de journee de voyage. " + parts.join(" ") + "\nRedige en francais, 40-70 mots, a la premiere personne du pluriel ('nous', 'on').\n\nREGLES STRICTES :\n- Appuie-toi A LA FOIS sur les lieux visites indiques et sur ce que montrent les photos. Croise les deux : les lieux renseignes donnent le contexte geographique, les photos montrent ce qui a ete vu.\n- Commence DIRECTEMENT par le contenu. Aucune phrase d'introduction, aucun 'Voici', 'Aujourd'hui', 'Resume :' ou preambule.\n- Reste STRICTEMENT factuel : enonce ce qui est visible sur les photos et ce qui correspond aux lieux visites (monuments, sites, batiments, paysages, elements naturels ou urbains). Pas d'adjectifs d'ambiance, pas d'interpretation, pas d'emotions, pas d'enthousiasme.\n- Si tu reconnais des lieux ou monuments celebres (sur les photos ou parmi les lieux indiques), nomme-les precisement et ajoute un fait concret (epoque, style, fonction, particularite).\n- AUCUN prenom ni participant.\n- Ne mentionne PAS le numero du jour ni la date (deja en titre).\n- Ne commence PAS par le nom du lieu principal (deja en titre)." }]) }]
       });
 
       var resp = await fetch("/api/summary", { method: "POST", headers: { "Content-Type": "application/json" }, body: summaryBody });
@@ -954,7 +983,7 @@ export default function App() {
   var _li = useState(-1), lbIndex = _li[0], setLbIndex = _li[1];
   var _lo = useState(true), loading = _lo[0], setLoading = _lo[1];
   var _ss = useState(""), saveStatus = _ss[0], setSaveStatus = _ss[1];
-  var _rg = useState([]), routeGeo = _rg[0], setRouteGeo = _rg[1];
+  var _rg = useState({ flat: [], byDay: {} }), routeGeo = _rg[0], setRouteGeo = _rg[1];
   var _pr = useState(false), printing = _pr[0], setPrinting = _pr[1];
   var saveTimer = useRef(null);
   var initialized = useRef(false);
