@@ -369,13 +369,24 @@ function Settings(props) {
 }
 
 // ── KmCounter ──
+function loadRouteType() { try { return localStorage.getItem("routeType") || "normal"; } catch (e) { return "normal"; } }
+
 function KmCounter(props) {
-  var days = props.days, setRouteGeo = props.setRouteGeo, updateDay = props.updateDay, t = props.theme || THEMES.default;
-  var _t2 = useState(0), totalKm = _t2[0], setTotalKm = _t2[1];
+  var days = props.days, setRouteGeo = props.setRouteGeo, updateDay = props.updateDay, t = props.theme || THEMES.default, isAdmin = props.isAdmin;
+  var initialKm = days.reduce(function(s, d) { return s + (d.km || 0); }, 0);
+  var _t2 = useState(initialKm), totalKm = _t2[0], setTotalKm = _t2[1];
   var _m = useState(0), totalMins = _m[0], setTotalMins = _m[1];
   var _c = useState(false), computing = _c[0], setComputing = _c[1];
-  var _s2 = useState([]), segments = _s2[0], setSegments = _s2[1];
-  var _r2 = useState("normal"), routeType = _r2[0], setRouteType = _r2[1];
+  var _r2 = useState(loadRouteType), routeType = _r2[0], setRouteType = _r2[1];
+  var computedRef = useRef(false);
+
+  // Mémorise le dernier choix Rapide/Touristique et relance le calcul
+  var chooseRoute = function(rt) {
+    if (rt === routeType) return;
+    setRouteType(rt);
+    try { localStorage.setItem("routeType", rt); } catch (e) {}
+    computedRef.current = false; // force le recalcul avec le nouveau type
+  };
 
   var compute = async function() {
     setComputing(true);
@@ -405,6 +416,14 @@ function KmCounter(props) {
     setComputing(false);
   };
 
+  // Calcul automatique à l'ouverture de la carte, et à chaque changement Rapide/Touristique
+  useEffect(function() {
+    if (computedRef.current) return;
+    if (!getAllLocations(days).length) return;
+    computedRef.current = true;
+    compute();
+  }, [routeType, days]);
+
   return (
     <div style={{ background: "#fff", borderRadius: 14, padding: 16, border: "1px solid " + t.border, marginBottom: 20 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
@@ -415,23 +434,48 @@ function KmCounter(props) {
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
           <div style={{ display: "flex", borderRadius: 8, overflow: "hidden", border: "1.5px solid " + t.cardAccent }}>
-            <button onClick={function() { setRouteType("normal"); }} style={{ padding: "6px 12px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: routeType === "normal" ? t.primary : "#fff", color: routeType === "normal" ? "#fff" : t.primary, fontFamily: "inherit" }}>Rapide</button>
-            <button onClick={function() { setRouteType("scenic"); }} style={{ padding: "6px 12px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: routeType === "scenic" ? t.primary : "#fff", color: routeType === "scenic" ? "#fff" : t.primary, borderLeft: "1px solid " + t.cardAccent, fontFamily: "inherit" }}>Touristique</button>
+            <button onClick={function() { chooseRoute("normal"); }} style={{ padding: "6px 12px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: routeType === "normal" ? t.primary : "#fff", color: routeType === "normal" ? "#fff" : t.primary, fontFamily: "inherit" }}>Rapide</button>
+            <button onClick={function() { chooseRoute("scenic"); }} style={{ padding: "6px 12px", fontSize: 12, fontWeight: 600, border: "none", cursor: "pointer", background: routeType === "scenic" ? t.primary : "#fff", color: routeType === "scenic" ? "#fff" : t.primary, borderLeft: "1px solid " + t.cardAccent, fontFamily: "inherit" }}>Touristique</button>
           </div>
-          <button onClick={compute} disabled={computing} style={{ background: "linear-gradient(135deg, " + t.primaryLight + ", " + t.primary + ")", color: "#fff", border: "none", borderRadius: 10, padding: "8px 16px", cursor: "pointer", fontSize: 13, fontWeight: 600, opacity: computing ? 0.7 : 1 }}>{computing ? "Calcul..." : "Calculer"}</button>
+          <button onClick={function() { computedRef.current = true; compute(); }} disabled={computing} style={{ background: "linear-gradient(135deg, " + t.primaryLight + ", " + t.primary + ")", color: "#fff", border: "none", borderRadius: 10, padding: "8px 16px", cursor: "pointer", fontSize: 13, fontWeight: 600, opacity: computing ? 0.7 : 1 }}>{computing ? "Calcul..." : "Recalculer"}</button>
         </div>
       </div>
-      {segments.length > 0 && (
-        <div style={{ marginTop: 12 }}>
-          {segments.map(function(s, i) { return (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: i < segments.length - 1 ? "1px solid " + t.bg1 : "none" }}>
-              <span style={{ fontSize: 13, color: t.primary, flex: 1 }}>{s.from} &rarr; {s.to}</span>
-              <span style={{ fontWeight: 700, color: t.primary, fontSize: 13 }}>{s.km} km</span>
-              <span style={{ fontSize: 12, color: t.textLight, minWidth: 55, textAlign: "right" }}>{formatDuration(s.mins)}</span>
-            </div>
-          ); })}
+      <DayKmSummary days={days} updateDay={updateDay} isAdmin={isAdmin} computing={computing} theme={t} />
+    </div>
+  );
+}
+
+// ── DayKmSummary : recap km + duree par jour (editable en admin) ──
+function DayKmSummary(props) {
+  var days = props.days, updateDay = props.updateDay, isAdmin = props.isAdmin, computing = props.computing, t = props.theme || THEMES.default;
+  var rows = days.map(function(d, i) {
+    var locs = (d.locations || []).filter(function(l) { return l && l.trim(); });
+    return { day: d, num: i + 1, locStr: locs.join(" > ") };
+  }).filter(function(r) { return r.day.km > 0 || r.locStr; });
+  if (!rows.length) return null;
+  var numSt = { width: 60, padding: "3px 6px", borderRadius: 6, border: "1px solid " + t.cardAccent, fontSize: 13, fontWeight: 700, color: t.primary, outline: "none", textAlign: "right", fontFamily: "inherit" };
+  var txtSt = { width: 70, padding: "3px 6px", borderRadius: 6, border: "1px solid " + t.cardAccent, fontSize: 12, color: t.textLight, outline: "none", textAlign: "right", fontFamily: "inherit" };
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: t.textLight, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>Par jour {computing && <span style={{ fontWeight: 400, textTransform: "none" }}>— calcul en cours...</span>}</div>
+      {rows.map(function(r, i) { return (
+        <div key={r.day.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: i < rows.length - 1 ? "1px solid " + t.bg1 : "none" }}>
+          <span style={{ fontSize: 12, color: t.textLight, fontWeight: 700, flexShrink: 0 }}>J{r.num}</span>
+          <span style={{ fontSize: 13, color: t.primary, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.locStr}</span>
+          {isAdmin ? (
+            <>
+              <input type="number" value={r.day.km || 0} onChange={function(e) { updateDay(r.day.id, { km: parseInt(e.target.value) || 0 }); }} style={numSt} />
+              <span style={{ fontSize: 13, color: t.primary }}>km</span>
+              <input type="text" value={r.day.kmTime || ""} placeholder="1h30" onChange={function(e) { updateDay(r.day.id, { kmTime: e.target.value }); }} style={txtSt} />
+            </>
+          ) : (
+            <>
+              <span style={{ fontWeight: 700, color: t.primary, fontSize: 13 }}>{r.day.km || 0} km</span>
+              {r.day.kmTime && <span style={{ fontSize: 12, color: t.textLight, minWidth: 55, textAlign: "right" }}>{r.day.kmTime}</span>}
+            </>
+          )}
         </div>
-      )}
+      ); })}
     </div>
   );
 }
@@ -493,7 +537,7 @@ function MiniMap(props) {
 
 // ── TripMap ──
 function TripMap(props) {
-  var days = props.days, routeGeo = props.routeGeo, setRouteGeo = props.setRouteGeo, updateDay = props.updateDay, t = props.theme || THEMES.default;
+  var days = props.days, routeGeo = props.routeGeo, setRouteGeo = props.setRouteGeo, updateDay = props.updateDay, t = props.theme || THEMES.default, isAdmin = props.isAdmin;
   var mapCenter = props.mapCenter || IRELAND_CENTER;
   var cRef = useRef(null), mRef = useRef(null), markersRef = useRef([]), routeRef = useRef([]);
   var _s3 = useState(""), status = _s3[0], setStatus = _s3[1];
@@ -549,7 +593,7 @@ function TripMap(props) {
 
   return (
     <div>
-      <KmCounter days={days} routeGeo={routeGeo} setRouteGeo={setRouteGeo} updateDay={updateDay} theme={t} />
+      <KmCounter days={days} routeGeo={routeGeo} setRouteGeo={setRouteGeo} updateDay={updateDay} theme={t} isAdmin={isAdmin} />
       <div style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "center", flexWrap: "wrap" }}>
         <button onClick={function() { setTick(function(x) { return x + 1; }); }} style={{ background: "linear-gradient(135deg, " + t.primaryLight + ", " + t.primary + ")", color: "#fff", border: "none", borderRadius: 10, padding: "10px 20px", cursor: "pointer", fontSize: 14, fontWeight: 600 }}>Actualiser</button>
         {status && <span style={{ fontSize: 13, color: t.accent }}>{status}</span>}
@@ -820,8 +864,11 @@ function StatsBar(props) {
 
 // ── TabBar ──
 function TabBar(props) {
-  var tab = props.tab, setTab = props.setTab, t = props.theme;
-  var tabs = [{ id: "journal", l: "Journal" }, { id: "map", l: "Carte" }, { id: "gallery", l: "Galerie" }, { id: "summary", l: "Resume" }, { id: "settings", l: "Parametres" }];
+  var tab = props.tab, setTab = props.setTab, t = props.theme, isAdmin = props.isAdmin;
+  // Visiteur : pas d'onglet "Journal" (edition) ; le "Resume" est presente comme "Journal".
+  var tabs = isAdmin
+    ? [{ id: "journal", l: "Journal" }, { id: "map", l: "Carte" }, { id: "gallery", l: "Galerie" }, { id: "summary", l: "Resume" }, { id: "settings", l: "Parametres" }]
+    : [{ id: "summary", l: "Journal" }, { id: "map", l: "Carte" }, { id: "gallery", l: "Galerie" }];
   return (
     <div className="no-print" style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: 20, flexWrap: "wrap" }}>
       {tabs.map(function(tb) { return (
@@ -982,7 +1029,7 @@ export default function App() {
   var navLightbox = useCallback(function(dir) { setLbIndex(function(i) { var n = i + dir; if (n < 0) return lbPhotos.length - 1; if (n >= lbPhotos.length) return 0; return n; }); }, [lbPhotos]);
   var handleUpload = useCallback(async function(b64, fname) { return await serverUpload(b64, fname); }, []);
 
-  var handleAccess = function(level) { setAuthLevel(level); setIsAdmin(level === "admin"); };
+  var handleAccess = function(level) { setAuthLevel(level); setIsAdmin(level === "admin"); if (level !== "admin") setTab("summary"); };
   var handleLogout = function() { setAuthLevel(null); setIsAdmin(false); setAuthToken(null); };
 
   // Access gate
@@ -1017,7 +1064,7 @@ export default function App() {
       <TripHeader config={config} isAdmin={isAdmin} onLogin={function() { handleAccess("admin"); }} onLogout={handleLogout} saveStatus={saveStatus} theme={theme} />
       <div style={{ maxWidth: 720, margin: "0 auto", padding: "0 16px 40px" }}>
         <StatsBar days={days} theme={theme} />
-        <TabBar tab={tab} setTab={setTab} theme={theme} />
+        <TabBar tab={tab} setTab={setTab} theme={theme} isAdmin={isAdmin} />
         {tab === "journal" && (
           <>
             {days.map(function(d, i) { return (
@@ -1029,7 +1076,7 @@ export default function App() {
             {isAdmin && <button onClick={addDay} style={{ width: "100%", padding: 14, borderRadius: 12, border: "2px dashed " + theme.textLight, background: "transparent", color: theme.primary, fontSize: 15, fontWeight: 600, cursor: "pointer", marginTop: 8 }}>+ Ajouter un jour</button>}
           </>
         )}
-        {tab === "map" && <TripMap days={days} routeGeo={routeGeo} setRouteGeo={setRouteGeo} updateDay={updateDay} theme={theme} mapCenter={mapCenter} />}
+        {tab === "map" && <TripMap days={days} routeGeo={routeGeo} setRouteGeo={setRouteGeo} updateDay={updateDay} theme={theme} mapCenter={mapCenter} isAdmin={isAdmin} />}
         {tab === "gallery" && <Gallery days={days} onOpenLightbox={openLightbox} theme={theme} />}
         {tab === "summary" && <FullSummary days={days} onOpenLightbox={openLightbox} config={config} theme={theme} />}
         {tab === "settings" && <Settings config={config} setConfig={setConfig} isAdmin={isAdmin} theme={theme} />}
