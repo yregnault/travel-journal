@@ -701,7 +701,8 @@ function DayCard(props) {
   };
 
   var generateSummary = async function() {
-    if (!day.photos.length) return;
+    var locStr = locs.filter(function(l) { return l && l.trim(); }).join(", ");
+    if (!day.photos.length && !locStr) { setAiError("Ajoutez au moins un lieu ou une photo pour generer un resume."); return; }
     setLoadingAI(true); setAiError("");
     try {
       var imgs = [];
@@ -714,48 +715,53 @@ function DayCard(props) {
         var small = await resizeImage(imgData, 600);
         imgs.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: small.split(",")[1] } });
       }
-      if (!imgs.length) { setAiError("Aucune photo exploitable."); setLoadingAI(false); return; }
       var parts = [];
       if (day.date) parts.push("Date : " + day.date + ".");
-      var locStr = locs.filter(function(l) { return l && l.trim(); }).join(", ");
       if (locStr) parts.push("Lieux renseignes par l'utilisateur : " + locStr + ".");
       if (config.destinations) parts.push("Destination du voyage : " + config.destinations + ".");
 
-      // Step 1: Verify coherence between photos and locations
-      var verifyBody = JSON.stringify({
-        model: "claude-sonnet-5", max_tokens: 500, thinking: { type: "disabled" },
-        messages: [{ role: "user", content: imgs.concat([{ type: "text", text: "Analyse ces photos. " + parts.join(" ") + "\n\nReponds UNIQUEMENT en JSON avec ce format exact (sans markdown, sans backticks) :\n{\"coherent\": true ou false, \"lieux_detectes\": [\"lieu1\", \"lieu2\"], \"message\": \"explication si incoherent\"}\n\nVerifie si les photos correspondent aux lieux renseignes. Si tu reconnais des lieux differents de ceux indiques, mets coherent a false et explique dans message. Si tu ne peux pas verifier ou si ca semble coherent, mets coherent a true." }]) }]
-      });
+      // Step 1: Verification de coherence photos <-> lieux (uniquement s'il y a des photos)
+      if (imgs.length && locStr) {
+        var verifyBody = JSON.stringify({
+          model: "claude-sonnet-5", max_tokens: 500, thinking: { type: "disabled" },
+          messages: [{ role: "user", content: imgs.concat([{ type: "text", text: "Analyse ces photos. " + parts.join(" ") + "\n\nReponds UNIQUEMENT en JSON avec ce format exact (sans markdown, sans backticks) :\n{\"coherent\": true ou false, \"lieux_detectes\": [\"lieu1\", \"lieu2\"], \"message\": \"explication si incoherent\"}\n\nVerifie si les photos correspondent aux lieux renseignes. Si tu reconnais des lieux differents de ceux indiques, mets coherent a false et explique dans message. Si tu ne peux pas verifier ou si ca semble coherent, mets coherent a true." }]) }]
+        });
 
-      var verifyResp = await fetch("/api/summary", { method: "POST", headers: { "Content-Type": "application/json" }, body: verifyBody });
+        var verifyResp = await fetch("/api/summary", { method: "POST", headers: { "Content-Type": "application/json" }, body: verifyBody });
 
-      if (verifyResp.ok) {
-        var verifyData = await verifyResp.json();
-        var verifyText = (verifyData.content || []).map(function(c) { return c.text || ""; }).filter(Boolean).join("");
-        try {
-          var cleanJson = verifyText.replace(/```json/g, "").replace(/```/g, "").trim();
-          var verification = JSON.parse(cleanJson);
-          if (verification && verification.coherent === false) {
-            var lieuxDetectes = (verification.lieux_detectes || []).join(", ");
-            var msg = "Les photos ne semblent pas correspondre aux lieux renseignes.\n\n";
-            msg += "Lieux renseignes : " + locStr + "\n";
-            if (lieuxDetectes) msg += "Lieux detectes sur les photos : " + lieuxDetectes + "\n";
-            if (verification.message) msg += "\n" + verification.message + "\n";
-            msg += "\nVoulez-vous quand meme generer le resume avec les lieux renseignes ?";
-            if (!window.confirm(msg)) {
-              setLoadingAI(false);
-              return;
+        if (verifyResp.ok) {
+          var verifyData = await verifyResp.json();
+          var verifyText = (verifyData.content || []).map(function(c) { return c.text || ""; }).filter(Boolean).join("");
+          try {
+            var cleanJson = verifyText.replace(/```json/g, "").replace(/```/g, "").trim();
+            var verification = JSON.parse(cleanJson);
+            if (verification && verification.coherent === false) {
+              var lieuxDetectes = (verification.lieux_detectes || []).join(", ");
+              var msg = "Les photos ne semblent pas correspondre aux lieux renseignes.\n\n";
+              msg += "Lieux renseignes : " + locStr + "\n";
+              if (lieuxDetectes) msg += "Lieux detectes sur les photos : " + lieuxDetectes + "\n";
+              if (verification.message) msg += "\n" + verification.message + "\n";
+              msg += "\nVoulez-vous quand meme generer le resume avec les lieux renseignes ?";
+              if (!window.confirm(msg)) {
+                setLoadingAI(false);
+                return;
+              }
             }
+          } catch (parseErr) {
+            // JSON parse failed, continue anyway
           }
-        } catch (parseErr) {
-          // JSON parse failed, continue anyway
         }
       }
 
-      // Step 2: Generate the actual summary
+      // Step 2: Generation du resume (avec photos + lieux, ou lieux seuls)
+      var withPhotos = imgs.length > 0;
+      var summaryText = withPhotos
+        ? ("Tu rediges un resume factuel de journee de voyage. " + parts.join(" ") + "\nRedige en francais, 40-70 mots, a la premiere personne du pluriel ('nous', 'on').\n\nREGLES STRICTES :\n- Appuie-toi A LA FOIS sur les lieux visites indiques et sur ce que montrent les photos. Croise les deux : les lieux renseignes donnent le contexte geographique, les photos montrent ce qui a ete vu.\n- Commence DIRECTEMENT par le contenu. Aucune phrase d'introduction, aucun 'Voici', 'Aujourd'hui', 'Resume :' ou preambule.\n- Reste STRICTEMENT factuel : enonce ce qui est visible sur les photos et ce qui correspond aux lieux visites (monuments, sites, batiments, paysages, elements naturels ou urbains). Pas d'adjectifs d'ambiance, pas d'interpretation, pas d'emotions, pas d'enthousiasme.\n- Si tu reconnais des lieux ou monuments celebres (sur les photos ou parmi les lieux indiques), nomme-les precisement et ajoute un fait concret (epoque, style, fonction, particularite).\n- AUCUN prenom ni participant.\n- Ne mentionne PAS le numero du jour ni la date (deja en titre).\n- Ne commence PAS par le nom du lieu principal (deja en titre).")
+        : ("Tu rediges un resume factuel de journee de voyage, a partir des LIEUX VISITES (aucune photo fournie). " + parts.join(" ") + "\nRedige en francais, 40-70 mots, a la premiere personne du pluriel ('nous', 'on').\n\nREGLES STRICTES :\n- Appuie-toi UNIQUEMENT sur les lieux visites indiques ci-dessus.\n- Commence DIRECTEMENT par le contenu. Aucune phrase d'introduction, aucun 'Voici', 'Aujourd'hui', 'Resume :' ou preambule.\n- Reste STRICTEMENT factuel : decris les sites, monuments et paysages caracteristiques de ces lieux. Pas d'adjectifs d'ambiance, pas d'interpretation, pas d'emotions, pas d'enthousiasme.\n- Si les lieux comportent des monuments ou sites celebres, nomme-les precisement et ajoute un fait concret (epoque, style, fonction, particularite).\n- N'invente pas d'activites ou de details qui ne decoulent pas directement des lieux indiques.\n- AUCUN prenom ni participant.\n- Ne mentionne PAS le numero du jour ni la date (deja en titre).\n- Ne commence PAS par le nom du lieu principal (deja en titre).");
+      var summaryContent = withPhotos ? imgs.concat([{ type: "text", text: summaryText }]) : [{ type: "text", text: summaryText }];
       var summaryBody = JSON.stringify({
         model: "claude-sonnet-5", max_tokens: 1000, thinking: { type: "disabled" },
-        messages: [{ role: "user", content: imgs.concat([{ type: "text", text: "Tu rediges un resume factuel de journee de voyage. " + parts.join(" ") + "\nRedige en francais, 40-70 mots, a la premiere personne du pluriel ('nous', 'on').\n\nREGLES STRICTES :\n- Appuie-toi A LA FOIS sur les lieux visites indiques et sur ce que montrent les photos. Croise les deux : les lieux renseignes donnent le contexte geographique, les photos montrent ce qui a ete vu.\n- Commence DIRECTEMENT par le contenu. Aucune phrase d'introduction, aucun 'Voici', 'Aujourd'hui', 'Resume :' ou preambule.\n- Reste STRICTEMENT factuel : enonce ce qui est visible sur les photos et ce qui correspond aux lieux visites (monuments, sites, batiments, paysages, elements naturels ou urbains). Pas d'adjectifs d'ambiance, pas d'interpretation, pas d'emotions, pas d'enthousiasme.\n- Si tu reconnais des lieux ou monuments celebres (sur les photos ou parmi les lieux indiques), nomme-les precisement et ajoute un fait concret (epoque, style, fonction, particularite).\n- AUCUN prenom ni participant.\n- Ne mentionne PAS le numero du jour ni la date (deja en titre).\n- Ne commence PAS par le nom du lieu principal (deja en titre)." }]) }]
+        messages: [{ role: "user", content: summaryContent }]
       });
 
       var resp = await fetch("/api/summary", { method: "POST", headers: { "Content-Type": "application/json" }, body: summaryBody });
@@ -821,13 +827,18 @@ function DayCard(props) {
               </div>
             )}
           </div>
-          {isAdmin && (
+          {isAdmin && (() => {
+            var canSummarize = day.photos.length > 0 || locs.some(function(l) { return l && l.trim(); });
+            return (
             <div style={{ marginTop: 18, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-              <button onClick={generateSummary} disabled={!day.photos.length || loadingAI} style={{ background: !day.photos.length ? "#ccc" : "linear-gradient(135deg, " + t.primaryLight + ", " + t.primary + ")", color: "#fff", border: "none", borderRadius: 10, padding: "10px 20px", cursor: !day.photos.length ? "default" : "pointer", fontSize: 14, fontWeight: 600, opacity: loadingAI ? 0.7 : 1, display: "flex", alignItems: "center", gap: 8 }}>
+              <button onClick={generateSummary} disabled={!canSummarize || loadingAI} style={{ background: !canSummarize ? "#ccc" : "linear-gradient(135deg, " + t.primaryLight + ", " + t.primary + ")", color: "#fff", border: "none", borderRadius: 10, padding: "10px 20px", cursor: !canSummarize ? "default" : "pointer", fontSize: 14, fontWeight: 600, opacity: loadingAI ? 0.7 : 1, display: "flex", alignItems: "center", gap: 8 }}>
                 {loadingAI ? "Analyse..." : "Generer le resume"}
               </button>
+              {canSummarize && day.photos.length === 0 && <span style={{ fontSize: 12, color: t.textLight }}>a partir des lieux</span>}
+              {!canSummarize && <span style={{ fontSize: 12, color: t.textLight }}>Ajoutez un lieu ou une photo</span>}
             </div>
-          )}
+            );
+          })()}
           {aiError && <div style={{ marginTop: 12, background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 10, padding: 12, fontSize: 13, color: "#b91c1c" }}>{aiError}</div>}
           {day.summary && (
             <div style={{ marginTop: 16, background: "linear-gradient(135deg, " + t.bg1 + ", " + t.border + ")", borderRadius: 12, padding: 16, borderLeft: "4px solid " + t.primaryLight }}>
