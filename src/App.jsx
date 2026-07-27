@@ -702,7 +702,8 @@ function DayCard(props) {
 
   var generateSummary = async function() {
     var locStr = locs.filter(function(l) { return l && l.trim(); }).join(", ");
-    if (!day.photos.length && !locStr) { setAiError("Ajoutez au moins un lieu ou une photo pour generer un resume."); return; }
+    var notesStr = (day.notes || "").trim();
+    if (!day.photos.length && !locStr && !notesStr) { setAiError("Ajoutez au moins un lieu, une note ou une photo pour generer un resume."); return; }
     setLoadingAI(true); setAiError("");
     try {
       var imgs = [];
@@ -753,11 +754,35 @@ function DayCard(props) {
         }
       }
 
-      // Step 2: Generation du resume (avec photos + lieux, ou lieux seuls)
+      // Step 2: Generation du resume (croisement lieux + notes/anecdotes + photos, selon ce qui est disponible)
       var withPhotos = imgs.length > 0;
-      var summaryText = withPhotos
-        ? ("Tu rediges un resume factuel de journee de voyage. " + parts.join(" ") + "\nRedige en francais, 40-70 mots, a la premiere personne du pluriel ('nous', 'on').\n\nREGLES STRICTES :\n- Appuie-toi A LA FOIS sur les lieux visites indiques et sur ce que montrent les photos. Croise les deux : les lieux renseignes donnent le contexte geographique, les photos montrent ce qui a ete vu.\n- Commence DIRECTEMENT par le contenu. Aucune phrase d'introduction, aucun 'Voici', 'Aujourd'hui', 'Resume :' ou preambule.\n- Reste STRICTEMENT factuel : enonce ce qui est visible sur les photos et ce qui correspond aux lieux visites (monuments, sites, batiments, paysages, elements naturels ou urbains). Pas d'adjectifs d'ambiance, pas d'interpretation, pas d'emotions, pas d'enthousiasme.\n- Si tu reconnais des lieux ou monuments celebres (sur les photos ou parmi les lieux indiques), nomme-les precisement et ajoute un fait concret (epoque, style, fonction, particularite).\n- AUCUN prenom ni participant.\n- Ne mentionne PAS le numero du jour ni la date (deja en titre).\n- Ne commence PAS par le nom du lieu principal (deja en titre).")
-        : ("Tu rediges un resume factuel de journee de voyage, a partir des LIEUX VISITES (aucune photo fournie). " + parts.join(" ") + "\nRedige en francais, 40-70 mots, a la premiere personne du pluriel ('nous', 'on').\n\nREGLES STRICTES :\n- Appuie-toi UNIQUEMENT sur les lieux visites indiques ci-dessus.\n- Commence DIRECTEMENT par le contenu. Aucune phrase d'introduction, aucun 'Voici', 'Aujourd'hui', 'Resume :' ou preambule.\n- Reste STRICTEMENT factuel : decris les sites, monuments et paysages caracteristiques de ces lieux. Pas d'adjectifs d'ambiance, pas d'interpretation, pas d'emotions, pas d'enthousiasme.\n- Si les lieux comportent des monuments ou sites celebres, nomme-les precisement et ajoute un fait concret (epoque, style, fonction, particularite).\n- N'invente pas d'activites ou de details qui ne decoulent pas directement des lieux indiques.\n- AUCUN prenom ni participant.\n- Ne mentionne PAS le numero du jour ni la date (deja en titre).\n- Ne commence PAS par le nom du lieu principal (deja en titre).");
+
+      var sources = [];
+      if (locStr) sources.push("les LIEUX visites");
+      if (notesStr) sources.push("les NOTES ET ANECDOTES ecrites par le voyageur");
+      if (withPhotos) sources.push("les PHOTOS de la journee");
+
+      var ctx = parts.slice();
+      if (notesStr) ctx.push("Notes et anecdotes ecrites par le voyageur : \"" + notesStr + "\".");
+
+      var rules = [];
+      if (sources.length > 1) {
+        rules.push("- Appuie-toi A LA FOIS sur " + sources.join(", ") + ". Croise ces sources : les lieux donnent le contexte geographique, les notes disent ce qui a reellement ete fait ou vecu, les photos montrent ce qui a ete vu.");
+      } else {
+        rules.push("- Appuie-toi UNIQUEMENT sur " + sources[0] + " indiquees ci-dessus.");
+      }
+      if (notesStr) {
+        rules.push("- Les notes et anecdotes sont la source LA PLUS FIABLE : ce qu'elles decrivent a reellement eu lieu. Reprends leurs elements concrets (activites, visites, repas, transports, imprevus, observations) et integre-les au resume, reformules dans le meme style factuel. Ne les contredis jamais, meme si les photos ou les lieux suggerent autre chose.");
+      }
+      rules.push("- Commence DIRECTEMENT par le contenu. Aucune phrase d'introduction, aucun 'Voici', 'Aujourd'hui', 'Resume :' ou preambule.");
+      rules.push("- Reste STRICTEMENT factuel : enonce ce qui est atteste par les sources (monuments, sites, batiments, paysages, elements naturels ou urbains, activites decrites dans les notes). Pas d'adjectifs d'ambiance, pas d'interpretation, pas d'emotions, pas d'enthousiasme.");
+      rules.push("- Si tu reconnais des lieux ou monuments celebres, nomme-les precisement et ajoute un fait concret (epoque, style, fonction, particularite).");
+      rules.push("- N'invente aucune activite ni detail qui ne decoule pas directement des sources fournies.");
+      rules.push("- AUCUN prenom ni participant, meme si les notes en mentionnent.");
+      rules.push("- Ne mentionne PAS le numero du jour ni la date (deja en titre).");
+      rules.push("- Ne commence PAS par le nom du lieu principal (deja en titre).");
+
+      var summaryText = "Tu rediges un resume factuel de journee de voyage a partir de " + sources.join(", ") + ".\n\n" + ctx.join(" ") + "\n\nRedige en francais, 40-70 mots, a la premiere personne du pluriel ('nous', 'on').\n\nREGLES STRICTES :\n" + rules.join("\n");
       var summaryContent = withPhotos ? imgs.concat([{ type: "text", text: summaryText }]) : [{ type: "text", text: summaryText }];
       var summaryBody = JSON.stringify({
         model: "claude-sonnet-5", max_tokens: 1000, thinking: { type: "disabled" },
@@ -828,14 +853,17 @@ function DayCard(props) {
             )}
           </div>
           {isAdmin && (() => {
-            var canSummarize = day.photos.length > 0 || locs.some(function(l) { return l && l.trim(); });
+            var hasLoc = locs.some(function(l) { return l && l.trim(); });
+            var hasNotes = !!(day.notes || "").trim();
+            var canSummarize = day.photos.length > 0 || hasLoc || hasNotes;
+            var srcLabel = [hasLoc ? "les lieux" : null, hasNotes ? "les notes" : null].filter(Boolean).join(" et ");
             return (
             <div style={{ marginTop: 18, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
               <button onClick={generateSummary} disabled={!canSummarize || loadingAI} style={{ background: !canSummarize ? "#ccc" : "linear-gradient(135deg, " + t.primaryLight + ", " + t.primary + ")", color: "#fff", border: "none", borderRadius: 10, padding: "10px 20px", cursor: !canSummarize ? "default" : "pointer", fontSize: 14, fontWeight: 600, opacity: loadingAI ? 0.7 : 1, display: "flex", alignItems: "center", gap: 8 }}>
                 {loadingAI ? "Analyse..." : "Generer le resume"}
               </button>
-              {canSummarize && day.photos.length === 0 && <span style={{ fontSize: 12, color: t.textLight }}>a partir des lieux</span>}
-              {!canSummarize && <span style={{ fontSize: 12, color: t.textLight }}>Ajoutez un lieu ou une photo</span>}
+              {canSummarize && day.photos.length === 0 && <span style={{ fontSize: 12, color: t.textLight }}>a partir de {srcLabel}</span>}
+              {!canSummarize && <span style={{ fontSize: 12, color: t.textLight }}>Ajoutez un lieu, une note ou une photo</span>}
             </div>
             );
           })()}
@@ -964,7 +992,6 @@ function FullSummary(props) {
               {d.date && <span style={{ color: t.textLight, fontSize: 14, marginLeft: "auto" }}>{d.date}</span>}
             </div>
             <div style={{ color: t.textDark, lineHeight: 1.65, fontSize: 14, whiteSpace: "pre-wrap", marginBottom: 12 }}>{d.summary}</div>
-            {d.notes && (<div style={{ fontSize: 13, color: "#555", lineHeight: 1.5, whiteSpace: "pre-wrap", marginBottom: 12, padding: "10px 14px", background: "#f9fafb", borderRadius: 10, borderLeft: "3px solid " + t.border, fontStyle: "italic" }}>{d.notes}</div>)}
             {(d.locations || []).some(function(l) { return l && l.trim(); }) && (<div style={{ marginBottom: 12 }}><MiniMap locations={d.locations || []} /></div>)}
             {d.photos.length > 0 && (
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 8 }}>
