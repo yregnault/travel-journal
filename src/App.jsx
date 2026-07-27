@@ -757,32 +757,36 @@ function DayCard(props) {
       // Step 2: Generation du resume (croisement lieux + notes/anecdotes + photos, selon ce qui est disponible)
       var withPhotos = imgs.length > 0;
 
-      var sources = [];
-      if (locStr) sources.push("les LIEUX visites");
-      if (notesStr) sources.push("les NOTES ET ANECDOTES ecrites par le voyageur");
-      if (withPhotos) sources.push("les PHOTOS de la journee");
-
-      var ctx = parts.slice();
-      if (notesStr) ctx.push("Notes et anecdotes ecrites par le voyageur : \"" + notesStr + "\".");
+      var sources = [], roles = [];
+      if (locStr) { sources.push("LIEUX visites"); roles.push("les lieux donnent le contexte geographique"); }
+      if (notesStr) { sources.push("NOTES ET ANECDOTES du voyageur"); roles.push("les notes disent ce qui a reellement ete fait"); }
+      if (withPhotos) { sources.push("PHOTOS de la journee"); roles.push("les photos montrent ce qui a ete vu"); }
+      if (!sources.length) throw new Error("Aucune source exploitable pour le resume (photos illisibles, aucun lieu ni note).");
 
       var rules = [];
-      if (sources.length > 1) {
-        rules.push("- Appuie-toi A LA FOIS sur " + sources.join(", ") + ". Croise ces sources : les lieux donnent le contexte geographique, les notes disent ce qui a reellement ete fait ou vecu, les photos montrent ce qui a ete vu.");
-      } else {
-        rules.push("- Appuie-toi UNIQUEMENT sur " + sources[0] + " indiquees ci-dessus.");
-      }
+      rules.push(sources.length > 1
+        ? "- Appuie-toi A LA FOIS sur toutes les sources ci-dessus : " + roles.join(", ") + "."
+        : "- Appuie-toi UNIQUEMENT sur les " + sources[0] + " ci-dessus.");
       if (notesStr) {
-        rules.push("- Les notes et anecdotes sont la source LA PLUS FIABLE : ce qu'elles decrivent a reellement eu lieu. Reprends leurs elements concrets (activites, visites, repas, transports, imprevus, observations) et integre-les au resume, reformules dans le meme style factuel. Ne les contredis jamais, meme si les photos ou les lieux suggerent autre chose.");
+        rules.push("- PRIORITE ABSOLUE AUX NOTES : elles decrivent ce qui a reellement ete fait et vecu ce jour-la. Le resume DOIT reprendre au moins deux elements concrets issus des notes (activites, visites, repas, transports, trajets, rencontres, imprevus, observations).");
+        rules.push("- Reformule les notes dans un style sobre et factuel, mais NE SUPPRIME PAS leur contenu : garde les faits, retire seulement le ton emotionnel et les jugements.");
+        rules.push("- Ne contredis jamais les notes, meme si les photos ou les lieux suggerent autre chose.");
       }
       rules.push("- Commence DIRECTEMENT par le contenu. Aucune phrase d'introduction, aucun 'Voici', 'Aujourd'hui', 'Resume :' ou preambule.");
-      rules.push("- Reste STRICTEMENT factuel : enonce ce qui est atteste par les sources (monuments, sites, batiments, paysages, elements naturels ou urbains, activites decrites dans les notes). Pas d'adjectifs d'ambiance, pas d'interpretation, pas d'emotions, pas d'enthousiasme.");
-      rules.push("- Si tu reconnais des lieux ou monuments celebres, nomme-les precisement et ajoute un fait concret (epoque, style, fonction, particularite).");
+      rules.push("- Reste factuel : enonce ce qui est atteste par les sources. Pas d'adjectifs d'ambiance, pas d'interpretation, pas d'enthousiasme.");
+      rules.push(notesStr
+        ? "- Tu peux nommer un monument ou site celebre et ajouter un fait concret (epoque, style, fonction), mais SEULEMENT si cela ne prend pas la place des elements des notes."
+        : "- Si tu reconnais des lieux ou monuments celebres, nomme-les precisement et ajoute un fait concret (epoque, style, fonction, particularite).");
       rules.push("- N'invente aucune activite ni detail qui ne decoule pas directement des sources fournies.");
-      rules.push("- AUCUN prenom ni participant, meme si les notes en mentionnent.");
+      rules.push("- AUCUN prenom ni participant" + (notesStr ? ", meme si les notes en mentionnent" : "") + " : remplace-les par 'nous' ou omets-les.");
       rules.push("- Ne mentionne PAS le numero du jour ni la date (deja en titre).");
       rules.push("- Ne commence PAS par le nom du lieu principal (deja en titre).");
 
-      var summaryText = "Tu rediges un resume factuel de journee de voyage a partir de " + sources.join(", ") + ".\n\n" + ctx.join(" ") + "\n\nRedige en francais, 40-70 mots, a la premiere personne du pluriel ('nous', 'on').\n\nREGLES STRICTES :\n" + rules.join("\n");
+      var summaryText = "Tu rediges un resume factuel de journee de voyage a partir des sources suivantes : " + sources.join(", ") + ".\n\n"
+        + (parts.length ? "CONTEXTE :\n" + parts.join(" ") + "\n" : "")
+        + (notesStr ? "\nNOTES ET ANECDOTES ECRITES PAR LE VOYAGEUR (source prioritaire, a integrer obligatoirement) :\n\"\"\"\n" + notesStr + "\n\"\"\"\n" : "")
+        + "\nRedige en francais, " + (notesStr ? "60-90" : "40-70") + " mots, a la premiere personne du pluriel ('nous', 'on')."
+        + "\n\nREGLES STRICTES :\n" + rules.join("\n");
       var summaryContent = withPhotos ? imgs.concat([{ type: "text", text: summaryText }]) : [{ type: "text", text: summaryText }];
       var summaryBody = JSON.stringify({
         model: "claude-sonnet-5", max_tokens: 1000, thinking: { type: "disabled" },
