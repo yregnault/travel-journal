@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 
 var SAVE_DELAY = 2000;
+var BUILD_TAG = "notes-v3"; // DIAGNOSTIC TEMPORAIRE : permet d'identifier le code reellement deploye
 var IRELAND_CENTER = [53.5, -7.5];
 var GEO_CACHE = {};
 var GEOCODE_DEST = "";
@@ -678,6 +679,7 @@ function DayCard(props) {
   var _l2 = useState(false), loadingAI = _l2[0], setLoadingAI = _l2[1];
   var _a2 = useState(""), aiError = _a2[0], setAiError = _a2[1];
   var _u2 = useState(false), uploading = _u2[0], setUploading = _u2[1];
+  var _dbg = useState(null), debugInfo = _dbg[0], setDebugInfo = _dbg[1]; // DIAGNOSTIC TEMPORAIRE
   var locs = day.locations || [""];
 
   var setLoc = function(idx, val) { var nl = locs.slice(); nl[idx] = val; updateDay(day.id, { locations: nl }); };
@@ -788,6 +790,8 @@ function DayCard(props) {
         + "\nRedige en francais, " + (notesStr ? "60-90" : "40-70") + " mots, a la premiere personne du pluriel ('nous', 'on')."
         + "\n\nREGLES STRICTES :\n" + rules.join("\n");
       var summaryContent = withPhotos ? imgs.concat([{ type: "text", text: summaryText }]) : [{ type: "text", text: summaryText }];
+      // DIAGNOSTIC TEMPORAIRE : trace de ce qui est reellement envoye a l'IA
+      setDebugInfo({ build: BUILD_TAG, notesLen: notesStr.length, nbPhotos: imgs.length, sources: sources.join(" + "), prompt: summaryText });
       var summaryBody = JSON.stringify({
         model: "claude-sonnet-5", max_tokens: 1000, thinking: { type: "disabled" },
         messages: [{ role: "user", content: summaryContent }]
@@ -868,10 +872,28 @@ function DayCard(props) {
               </button>
               {canSummarize && day.photos.length === 0 && <span style={{ fontSize: 12, color: t.textLight }}>a partir de {srcLabel}</span>}
               {!canSummarize && <span style={{ fontSize: 12, color: t.textLight }}>Ajoutez un lieu, une note ou une photo</span>}
+              {/* DIAGNOSTIC TEMPORAIRE */}
+              <span title="Version du code servie par le navigateur" style={{ marginLeft: "auto", fontSize: 11, fontFamily: "monospace", color: "#94a3b8", border: "1px solid #e2e8f0", borderRadius: 6, padding: "2px 6px" }}>
+                build {BUILD_TAG} · notes {(day.notes || "").trim().length} car.
+              </span>
             </div>
             );
           })()}
           {aiError && <div style={{ marginTop: 12, background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 10, padding: 12, fontSize: 13, color: "#b91c1c" }}>{aiError}</div>}
+          {/* DIAGNOSTIC TEMPORAIRE : contenu exact envoye a l'IA lors de la derniere generation */}
+          {isAdmin && debugInfo && (
+            <details className="no-print" style={{ marginTop: 12, background: "#f8fafc", border: "1px dashed #cbd5e1", borderRadius: 10, padding: 12 }}>
+              <summary style={{ cursor: "pointer", fontSize: 12, fontWeight: 600, color: "#475569" }}>
+                Diagnostic : prompt envoye a l'IA (build {debugInfo.build})
+              </summary>
+              <div style={{ marginTop: 8, fontSize: 12, color: "#475569", lineHeight: 1.6 }}>
+                <div>Sources : <b>{debugInfo.sources}</b></div>
+                <div>Notes transmises : <b>{debugInfo.notesLen} caracteres</b>{debugInfo.notesLen === 0 && " — AUCUNE NOTE ENVOYEE"}</div>
+                <div>Photos transmises : <b>{debugInfo.nbPhotos}</b></div>
+              </div>
+              <pre style={{ marginTop: 8, whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: 11, lineHeight: 1.5, color: "#334155", background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, padding: 10, maxHeight: 320, overflowY: "auto" }}>{debugInfo.prompt}</pre>
+            </details>
+          )}
           {day.summary && (
             <div style={{ marginTop: 16, background: "linear-gradient(135deg, " + t.bg1 + ", " + t.border + ")", borderRadius: 12, padding: 16, borderLeft: "4px solid " + t.primaryLight }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: t.primary, marginBottom: 6 }}>Résumé de la journée</div>
