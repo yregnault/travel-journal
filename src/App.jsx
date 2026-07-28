@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
+import mascotImg from "./assets/unicorn.webp";
 
 var SAVE_DELAY = 2000;
 var BUILD_TAG = "notes-v3"; // DIAGNOSTIC TEMPORAIRE : permet d'identifier le code reellement deploye
@@ -921,18 +922,25 @@ function InsertDayBtn(props) {
 // ── TripHeader ──
 function TripHeader(props) {
   var t = props.theme;
+  // Conteneur non clippe : la peluche deborde volontairement sous la banniere.
+  // Le degrade et les emojis decoratifs vivent dans un calque interne, lui clippe par les coins arrondis.
   return (
-    <div style={{ textAlign: "center", padding: "30px 20px 24px", background: "linear-gradient(160deg, " + t.textDark + " 0%, " + t.primary + " 50%, " + t.primaryLight + " 100%)", color: "#fff", borderRadius: "0 0 30px 30px", marginBottom: 24, position: "relative", overflow: "hidden" }}>
-      <div style={{ position: "absolute", top: 10, left: 20, opacity: 0.15, fontSize: 80 }}>{t.emoji1}</div>
-      <div style={{ position: "absolute", bottom: -10, right: 20, opacity: 0.10, fontSize: 120 }}>{t.emoji2}</div>
-      <LoginBar isAdmin={props.isAdmin} onLogin={props.onLogin} onLogout={props.onLogout} />
-      <div style={{ fontSize: 14, letterSpacing: 3, textTransform: "uppercase", color: t.cardAccent, marginBottom: 8, marginTop: 10 }}>Carnet de Voyage</div>
-      <div style={{ fontSize: 38, fontWeight: 800 }}>{props.config.title || "Mon voyage"}</div>
-      {(props.config.startDate || props.config.endDate) && <div style={{ marginTop: 10, color: t.cardAccent, fontSize: 18 }}>{props.config.startDate} - {props.config.endDate}</div>}
-      {props.config.participants && <div style={{ marginTop: 8, color: t.textLight, fontSize: 17 }}>{props.config.participants}</div>}
-      <div style={{ marginTop: 6, display: "flex", justifyContent: "center", gap: 8, alignItems: "center" }}>
-        {!props.isAdmin && <span className="no-print" style={{ fontSize: 12, color: t.textLight }}>Mode visiteur</span>}
-        {props.saveStatus && <span style={{ fontSize: 11, color: t.cardAccent, background: "rgba(255,255,255,0.1)", padding: "2px 10px", borderRadius: 6 }}>{props.saveStatus}</span>}
+    <div style={{ position: "relative", marginBottom: 24, color: "#fff" }}>
+      <div style={{ position: "absolute", inset: 0, background: "linear-gradient(160deg, " + t.textDark + " 0%, " + t.primary + " 50%, " + t.primaryLight + " 100%)", borderRadius: "0 0 30px 30px", overflow: "hidden" }}>
+        <div style={{ position: "absolute", top: 10, left: 20, opacity: 0.15, fontSize: 80 }}>{t.emoji1}</div>
+        <div style={{ position: "absolute", bottom: -10, right: 20, opacity: 0.10, fontSize: 120 }}>{t.emoji2}</div>
+      </div>
+      <img src={mascotImg} alt="" aria-hidden="true" className="header-mascot no-print" />
+      <div style={{ position: "relative", textAlign: "center", padding: "30px 20px 24px" }}>
+        <LoginBar isAdmin={props.isAdmin} onLogin={props.onLogin} onLogout={props.onLogout} />
+        <div style={{ fontSize: 14, letterSpacing: 3, textTransform: "uppercase", color: t.cardAccent, marginBottom: 8, marginTop: 10 }}>Carnet de Voyage</div>
+        <div style={{ fontSize: 38, fontWeight: 800 }}>{props.config.title || "Mon voyage"}</div>
+        {(props.config.startDate || props.config.endDate) && <div style={{ marginTop: 10, color: t.cardAccent, fontSize: 18 }}>{props.config.startDate} - {props.config.endDate}</div>}
+        {props.config.participants && <div style={{ marginTop: 8, color: t.textLight, fontSize: 17 }}>{props.config.participants}</div>}
+        <div style={{ marginTop: 6, display: "flex", justifyContent: "center", gap: 8, alignItems: "center" }}>
+          {!props.isAdmin && <span className="no-print" style={{ fontSize: 12, color: t.textLight }}>Mode visiteur</span>}
+          {props.saveStatus && <span style={{ fontSize: 11, color: t.cardAccent, background: "rgba(255,255,255,0.1)", padding: "2px 10px", borderRadius: 6 }}>{props.saveStatus}</span>}
+        </div>
       </div>
     </div>
   );
@@ -1139,6 +1147,13 @@ export default function App() {
       <style>{
         "@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}" +
         ".leaflet-container{font-family:inherit;}" +
+        // Peluche mascotte : ancree en haut a droite de la banniere, deborde sous celle-ci.
+        // right: colle au bord sur ecran etroit, reste proche de la colonne de contenu (720px) sur grand ecran.
+        ".header-mascot{position:absolute;top:0;right:max(0px, calc(50% - 660px));height:300px;width:auto;pointer-events:none;user-select:none;-webkit-user-drag:none;filter:drop-shadow(0 10px 20px rgba(0,0,0,0.25));}" +
+        "@media(max-width:1200px){.header-mascot{height:250px;}}" +
+        "@media(max-width:1000px){.header-mascot{height:200px;}}" +
+        "@media(max-width:820px){.header-mascot{height:160px;}}" +
+        "@media(max-width:560px){.header-mascot{display:none;}}" +
         "@media print{" +
         "@page{margin:5mm 3mm;}" +
         ".no-print{display:none !important;}" +
