@@ -2,6 +2,12 @@ import { useState, useRef, useCallback, useEffect } from "react";
 import mascotImg from "./assets/unicorn.webp";
 
 var SAVE_DELAY = 2000;
+// Mascotte du voyage : la peluche de l'en-tete. Decrite a l'IA pour qu'elle la
+// reconnaisse sur les photos et raconte ce qu'elle y fait.
+var MASCOT = {
+  name: "Estelle",
+  look: "une petite peluche licorne rose, avec une corne pailletee rose et une criniere ebouriffee, parfois accompagnee de petites trousses rondes zippees",
+};
 var BUILD_TAG = "notes-v3"; // DIAGNOSTIC TEMPORAIRE : permet d'identifier le code reellement deploye
 var IRELAND_CENTER = [53.5, -7.5];
 var GEO_CACHE = {};
@@ -728,7 +734,7 @@ function DayCard(props) {
       if (imgs.length && locStr) {
         var verifyBody = JSON.stringify({
           model: "claude-sonnet-5", max_tokens: 500, thinking: { type: "disabled" },
-          messages: [{ role: "user", content: imgs.concat([{ type: "text", text: "Analyse ces photos. " + parts.join(" ") + "\n\nReponds UNIQUEMENT en JSON avec ce format exact (sans markdown, sans backticks) :\n{\"coherent\": true ou false, \"lieux_detectes\": [\"lieu1\", \"lieu2\"], \"message\": \"explication si incoherent\"}\n\nVerifie si les photos correspondent aux lieux renseignes. Si tu reconnais des lieux differents de ceux indiques, mets coherent a false et explique dans message. Si tu ne peux pas verifier ou si ca semble coherent, mets coherent a true." }]) }]
+          messages: [{ role: "user", content: imgs.concat([{ type: "text", text: "Analyse ces photos. " + parts.join(" ") + "\n\nReponds UNIQUEMENT en JSON avec ce format exact (sans markdown, sans backticks) :\n{\"coherent\": true ou false, \"lieux_detectes\": [\"lieu1\", \"lieu2\"], \"message\": \"explication si incoherent\"}\n\nVerifie si les photos correspondent aux lieux renseignes. Si tu reconnais des lieux differents de ceux indiques, mets coherent a false et explique dans message. Si tu ne peux pas verifier ou si ca semble coherent, mets coherent a true.\n\n" + MASCOT.name + " est une peluche licorne rose qui voyage avec nous et apparait en gros plan sur certaines photos : ignore-la pour cette verification, sa presence ne dit rien du lieu et ne rend pas une photo incoherente." }]) }]
         });
 
         var verifyResp = await fetch("/api/summary", { method: "POST", headers: { "Content-Type": "application/json" }, body: verifyBody });
@@ -781,7 +787,13 @@ function DayCard(props) {
         ? "- Tu peux nommer un monument ou site celebre et ajouter un fait concret (epoque, style, fonction), mais SEULEMENT si cela ne prend pas la place des elements des notes."
         : "- Si tu reconnais des lieux ou monuments celebres, nomme-les precisement et ajoute un fait concret (epoque, style, fonction, particularite).");
       rules.push("- N'invente aucune activite ni detail qui ne decoule pas directement des sources fournies.");
-      rules.push("- AUCUN prenom ni participant" + (notesStr ? ", meme si les notes en mentionnent" : "") + " : remplace-les par 'nous' ou omets-les.");
+      if (withPhotos) {
+        // La mascotte est le seul "personnage" nommable : elle est identifiable visuellement,
+        // contrairement aux participants humains que le resume doit garder anonymes.
+        rules.push("- MASCOTTE : " + MASCOT.name + " est " + MASCOT.look + ". Elle voyage avec nous et se retrouve mise en scene sur certaines photos. Si tu la reconnais sur une photo, decris en une courte proposition ce qu'elle y fait : ou elle est posee, ce qu'elle tient, contre quoi elle est appuyee, comment elle est installee dans le decor.");
+        rules.push("- Reste factuel sur " + MASCOT.name + " : decris ce qui est visible sur la photo, ne lui prete ni sentiment ni parole. Si elle n'apparait sur aucune photo, ne la mentionne pas et n'invente jamais sa presence.");
+      }
+      rules.push("- AUCUN prenom ni participant humain" + (notesStr ? ", meme si les notes en mentionnent" : "") + " : remplace-les par 'nous' ou omets-les." + (withPhotos ? " " + MASCOT.name + " la peluche est la seule exception : elle peut etre nommee." : ""));
       rules.push("- Ne mentionne PAS le numero du jour ni la date (deja en titre).");
       rules.push("- Ne commence PAS par le nom du lieu principal (deja en titre).");
 
